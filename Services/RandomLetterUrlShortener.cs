@@ -26,7 +26,7 @@ public class RandomLetterUrlShortener : IUrlShortener
 
     public string GetShortenedUrlFromShortcut(string shortcutCode)
     {
-        var shortenedUrlBuilder = new StringBuilder("https://");
+        var shortenedUrlBuilder = new StringBuilder("http://");
         var hostName = Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME") ?? "localhost";
         shortenedUrlBuilder.Append(hostName);
         if (hostName.Equals("localhost"))
@@ -40,7 +40,7 @@ public class RandomLetterUrlShortener : IUrlShortener
                 shortenedUrlBuilder.Append($":{port}");
         }
 
-        return shortenedUrlBuilder.Append("/go/").Append(shortcutCode).ToString();
+        return shortenedUrlBuilder.Append("/api/go/").Append(shortcutCode).ToString();
     }
     
 }

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Http;
 using Azure;
@@ -48,18 +49,18 @@ public class FunctionContainer
             
             return new BadRequestObjectResult($"Parameter '{ParameterName}' is not provided");
         }
-
+        
         logger.LogInformation(
             "{BaseLogMessage}: HTTP trigger received a request to shorten '{UrlToShortening}' URL",
             GetBaseLogMessage(nameof(ShortenUrl), request), urlToShortening);
-
+        
         var firstThreeLettersOfHost = new Uri(urlToShortening).GetHost().GetFirstThreeLettersOfHost();
-
+        
         var partitionKeyFilter =
             TableQuery.GenerateFilterCondition(nameof(Url.PartitionKey), QueryComparisons.Equal, firstThreeLettersOfHost);
         var fullUrlFilter = TableQuery.GenerateFilterCondition(nameof(Url.FullUrl), QueryComparisons.Equal, urlToShortening);
         var combinedFilter = TableQuery.CombineFilters(partitionKeyFilter, TableOperators.And, fullUrlFilter);
-
+        
         var urlResponse = tableClient.Query<Url>(combinedFilter);
         if (urlResponse.Any())
         {
@@ -68,7 +69,7 @@ public class FunctionContainer
             logger.LogInformation(
                 "{BaseLogMessage}: successfully processed a request but the given URL '{UrlToShortening}' was already shortened before, returning 200 OK with already existing short URL ({ShortenedUrl})",
                  GetBaseLogMessage(nameof(ShortenUrl), request), urlToShortening, shortenedUrl);
-
+        
             return new ObjectResult(shortenedUrl);
         }
         else
@@ -76,7 +77,7 @@ public class FunctionContainer
             var shortcut =
                 urlShortener.GetShortcutCode(length: 6, urlToShortening: urlToShortening, baseShortcutCode: firstThreeLettersOfHost);
             var url = new Url { RowKey = shortcut, FullUrl = urlToShortening, PartitionKey = firstThreeLettersOfHost };
-
+        
             try
             {
                 await tableClient.AddEntityAsync(url);
@@ -86,28 +87,28 @@ public class FunctionContainer
                 logger.LogError(
                     "{BaseLogMessage}: fail when trying to save shortened URL (full URL: {FullUrl}, shortcut: {Shortcut}, details: {ErrorDetails}), returning 500 Internal Server Error",
                     GetBaseLogMessage(nameof(ShortenUrl), request), urlToShortening, shortcut, exception.Message);
-
+        
                 return new InternalServerErrorResult();
             }
-
+        
             var shortenedUrl = urlShortener.GetShortenedUrlFromShortcut(shortcutCode: shortcut);
             logger.LogInformation(
                 "{BaseLogMessage}: successfully processed a request to shorten URL '{UrlToShortening}', returning 200 OK with shortened URL ({ShortenedUrl})",
                 GetBaseLogMessage(nameof(ShortenUrl), request), urlToShortening, shortenedUrl);
-
+        
             return new OkObjectResult(shortenedUrl);
         }
     }
     
     [FunctionName("GoToShortUrl")]
     public async Task<IActionResult> GoToShortUrl(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "go/{shortcutCode:alpha}")]
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "go/{shortcutCode}")]
         HttpRequest request, string shortcutCode)
     {
         logger.LogInformation(
             "{BaseLogMessage}: HTTP trigger received a request to redirect to full URL by '{ShortcutCode}' shortcut code",
             GetBaseLogMessage(nameof(ShortenUrl), request), shortcutCode);
-
+    
         var partitionKey = shortcutCode.GetFirstThreeLettersOfHost();
         var urlEntityResponse = await tableClient.GetEntityAsync<Url>(partitionKey, shortcutCode);
         if (!urlEntityResponse.HasValue)
@@ -115,7 +116,7 @@ public class FunctionContainer
             logger.LogWarning(
                 "{BaseLogMessage}: URL with shortcut '{ShortcutCode}' not found, returning 404 Not Found",
                 GetBaseLogMessage(nameof(ShortenUrl), request), shortcutCode);
-
+    
             return new NotFoundResult();
         }
         var urlEntity = urlEntityResponse.Value;
@@ -123,18 +124,46 @@ public class FunctionContainer
         await queueClient.SendMessageAsync(shortcutCode);
         
         logger.LogInformation(
-            "{BaseLogMessage}: successfully processed a request to redirect to full URL by '{ShortcutCode}' shortcut code, returning 301 Permanent Redirect to full URL ({FullUrl})",
+            "{BaseLogMessage}: successfully processed a request to redirect to full URL by '{ShortcutCode}' shortcut code, returning 302 Temporary Redirect to full URL ({FullUrl})",
             GetBaseLogMessage(nameof(ShortenUrl), request), shortcutCode, urlEntity.FullUrl);
+
+        return new RedirectResult(urlEntity.FullUrl, permanent: false);
+    }
+
+    [FunctionName("CountRedirect")]
+    public async Task CountRedirect([QueueTrigger(queueName: "redirects")] string shortcutCode)
+    {
+        logger.LogInformation("{BaseLogMessage}: received '{ShortcutCode}' shortcut code from queue",
+            GetBaseLogMessage(nameof(CountRedirect)), shortcutCode);
+    
+        var partitionKey = shortcutCode.GetFirstThreeLettersOfHost();
+        var urlResponse = await tableClient.GetEntityAsync<Url>(rowKey: shortcutCode, partitionKey: partitionKey);
+        if (!urlResponse.HasValue)
+        {
+            logger.LogWarning("{BaseLogMessage}: URL with shortcut code '{ShorcutCode}' not found",
+                GetBaseLogMessage(nameof(CountRedirect)), shortcutCode);
+    
+            return;
+        }
+    
+        var url = urlResponse.Value;
+        url.Count += 1;
+        await tableClient.UpsertEntityAsync(url);
         
-        return new RedirectResult(urlEntity.FullUrl, permanent: true);
+        logger.LogInformation("{BaseLogMessage}: successfully counted redirects number of URL with shortcut code {ShortcutCode}, currently its {RedirectCount}",
+            GetBaseLogMessage(nameof(CountRedirect)), shortcutCode, url.Count);
     }
 
     #region Utils
     
-    private static string GetBaseLogMessage(string methodName, HttpRequest request)
+    private static string GetBaseLogMessage(string methodName, HttpRequest? request = null)
     {
-        var resultLogMessage = $"[{request.Method}] {nameof(FunctionContainer)}.{methodName}";
-        return resultLogMessage;
+        var messageBuilder = new StringBuilder();
+        messageBuilder.Append('[')
+            .Append(request is not null ? request.Method : "UTILITY")
+            .Append($"] {nameof(FunctionContainer)}.{methodName}");
+        
+        return messageBuilder.ToString();
     }
     
     #endregion

@@ -10,5 +10,10 @@
         "logLevel": {
             "UrlShortenerApp.FunctionContainer": "Information"
         }
+    },
+    "extensions": {
+        "queues": {
+            "messageEncoding": "base64"
+        }
     }
 }

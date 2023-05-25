@@ -8,7 +8,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using UrlShortenerApp.Services;
 using UrlShortenerApp.Services.Abstractions;
+using UrlShortenerApp.Services.MapperProfiles;
 using UrlShortenerApp.Utils;
+// ReSharper disable RedundantTypeArgumentsOfMethod
 
 [assembly: FunctionsStartup(typeof(Startup))]
 
@@ -43,6 +45,11 @@ public class Startup : FunctionsStartup
             clients.AddQueueServiceClient(tableConnectionString);
         });
 
+        builder.Services.AddAutoMapper(profiles =>
+        {
+            profiles.AddProfile<UrlTableProfile>();
+        });
+
         builder.Services.AddSingleton<TableClient>(_ =>
         {
             const string TableNameConfigurationPath = "Azure:Table:Name";
@@ -66,8 +73,19 @@ public class Startup : FunctionsStartup
 
         builder.Services.AddSingleton<Random>(_ => Random.Shared);
 
-        builder.Services.AddTransient<ILetterGenerator, RandomLetterGenerator>();
+        builder.Services.AddSingleton<ILetterGenerator, ConsistentUniqueLetterGenerator>(_ =>
+        {
+            return new ConsistentUniqueLetterGenerator(availableSymbols: new[]
+            {
+                'A', 'a', 'B', 'b', 'C', 'c', 'D', 'd', 'E', 'e', 'F', 'f', 'G', 'g', 'H', 'h', 'I', 'i', 'J', 'j', 'K', 'k', 'L', 'l', 'M',
+                'm',
+                'N', 'n', 'O', 'o', 'P', 'p', 'Q', 'q', 'R', 'r', 'S', 's', 'T', 't', 'U', 'u', 'V', 'v', 'W', 'w', 'X', 'x', 'Y', 'y', 'Z',
+                'z'
+            });
+        });
+
         builder.Services.AddTransient<ITextEntropier, UpperLowerCaseTextEntropier>();
-        builder.Services.AddTransient<IUrlShortener, RandomLetterUrlShortener>();
+        builder.Services.AddTransient<UrlShortener>();
+        builder.Services.AddSingleton<IUrlRepository, AzureTableUrlRepository>();
     }
 }

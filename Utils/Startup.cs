@@ -60,17 +60,6 @@ public class Startup : FunctionsStartup
             return tableClient;
         });
 
-        builder.Services.AddSingleton<QueueClient>(_ =>
-        {
-            const string QueueNameConfigurationPath = "Azure:Queue:Name";
-            var queueName = configuration[QueueNameConfigurationPath];
-
-            var queueClient = new QueueClient(queueConnectionString, queueName,
-                new QueueClientOptions { MessageEncoding = QueueMessageEncoding.Base64 });
-            queueClient.CreateIfNotExists();
-            return queueClient;
-        });
-
         builder.Services.AddSingleton<Random>(_ => Random.Shared);
 
         builder.Services.AddSingleton<ILetterGenerator, ConsistentUniqueLetterGenerator>(_ =>

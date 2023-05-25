@@ -21,21 +21,19 @@ public class FunctionContainer
 {
     private readonly IUrlRepository urlRepository;
     private readonly UrlShortener urlShortener;
-    private readonly QueueClient queueClient;
     private readonly ILogger<FunctionContainer> logger;
 
-    public FunctionContainer(IUrlRepository urlRepository, UrlShortener urlShortener, QueueClient queueClient, ILoggerFactory loggerFactory)
+    public FunctionContainer(IUrlRepository urlRepository, UrlShortener urlShortener, ILoggerFactory loggerFactory)
     {
         this.urlRepository = urlRepository;
         this.urlShortener = urlShortener;
-        this.queueClient = queueClient;
         logger = loggerFactory.CreateLogger<FunctionContainer>();
     }
 
     [FunctionName("ShortenUrl")]
     public async Task<IActionResult> ShortenUrl(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "shorten/")]
-        HttpRequest request)
+        HttpRequest request, [Queue(queueName: "olds")] QueueClient oldUrlQueue)
     {
         const string ParameterName = "urlToShortening";
         var urlToShortening = await request.GetParameterValueOrDefaultAsync(ParameterName);
@@ -76,6 +74,7 @@ public class FunctionContainer
             {
                 await urlRepository.AddUrlAsync(url);
                 await urlRepository.UpdateIdentityAsync(++currentIdentifier);
+                await oldUrlQueue.SendMessageAsync(messageText: url.ShortcutCode, visibilityTimeout: TimeSpan.FromDays(31));
             }
             catch (RequestFailedException exception)
             {
@@ -98,7 +97,7 @@ public class FunctionContainer
     [FunctionName("GoToShortUrl")]
     public async Task<IActionResult> GoToShortUrl(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "go/{shortcutCode}")]
-        HttpRequest request, string shortcutCode)
+        HttpRequest request, string shortcutCode, [Queue(queueName: "redirects")] QueueClient redirectCountingQueue)
     {
         logger.LogInformation(
             "{BaseLogMessage}: HTTP trigger received a request to redirect to full URL by '{ShortcutCode}' shortcut code",
@@ -114,7 +113,7 @@ public class FunctionContainer
             return new NotFoundResult();
         }
 
-        await queueClient.SendMessageAsync(shortcutCode);
+        await redirectCountingQueue.SendMessageAsync(shortcutCode);
         
         logger.LogInformation(
             "{BaseLogMessage}: successfully processed a request to redirect to full URL by '{ShortcutCode}' shortcut code, returning 302 Temporary Redirect to full URL ({FullUrl})",
@@ -143,6 +142,30 @@ public class FunctionContainer
         
         logger.LogInformation("{BaseLogMessage}: successfully counted redirects number of URL with shortcut code '{ShortcutCode}', currently its {RedirectCount}",
             GetBaseLogMessage(nameof(CountRedirect)), shortcutCode, url.Count);
+    }
+    
+    [FunctionName("ClearOldUrl")]
+    public async Task ClearOldUrl([QueueTrigger(queueName: "olds")] string shortcutCode)
+    {
+        logger.LogInformation("{BaseLogMessage}: received '{ShortcutCode}' shortcut code from queue",
+            GetBaseLogMessage(nameof(ClearOldUrl)), shortcutCode);
+        
+        var url = await urlRepository.GetUrlByShortcutCodeIfExistsAsync(shortcutCode);
+        if (url is null)
+        {
+            logger.LogWarning("{BaseLogMessage}: URL with shortcut code '{ShorcutCode}' not found",
+                GetBaseLogMessage(nameof(ClearOldUrl)), shortcutCode);
+            
+            return;
+        }
+
+        await urlRepository.RemoveUrlAsync(url);
+
+        var currentIdentifier = await urlRepository.GetCurrentIdentifierAsync();
+        await urlRepository.UpdateIdentityAsync(--currentIdentifier);
+        
+        logger.LogInformation("{BaseLogMessage}: successfully removed old URL '{FullUrl}' with shortcut code '{ShortcutCode}'",
+            GetBaseLogMessage(nameof(ClearOldUrl)), url.FullUrl, shortcutCode);
     }
 
     #region Utils

@@ -5,25 +5,25 @@ using UrlShortenerApp.Services.Abstractions;
 
 namespace UrlShortenerApp.Services;
 
-public class RandomLetterUrlShortener : IUrlShortener
+public class UrlShortener
 {
     private readonly ILetterGenerator letterGenerator;
     private readonly ITextEntropier textEntropier;
 
-    public RandomLetterUrlShortener(ILetterGenerator letterGenerator, ITextEntropier textEntropier)
+    public UrlShortener(ILetterGenerator letterGenerator, ITextEntropier textEntropier)
     {
         this.letterGenerator = letterGenerator;
         this.textEntropier = textEntropier;
     }
 
-    public string GetShortcutCode(byte length, string urlToShortening, string? baseShortcutCode = "")
+    public string GetShortcutCode(byte length, string? baseShortcutCode = "", int seed = 1)
     {
-        var shortCutCodeBuilder = new StringBuilder(baseShortcutCode)
-            .Append(letterGenerator.GenerateLetters(length));
+        var shortCutCodeBuilder = new StringBuilder(textEntropier.EntropyText(baseShortcutCode))
+            .Append(letterGenerator.GenerateLetters(length, seed));
 
-        return textEntropier.EntropyText(shortCutCodeBuilder.ToString());
+        return shortCutCodeBuilder.ToString();
     }
-
+    
     public string GetShortenedUrlFromShortcut(string shortcutCode)
     {
         var shortenedUrlBuilder = new StringBuilder("http://");

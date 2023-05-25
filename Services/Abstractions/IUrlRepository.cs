@@ -10,6 +10,7 @@ public interface IUrlRepository
     public Task<Url?> GetUrlByShortcutCodeIfExistsAsync(string shortcutCode);
     public Task AddUrlAsync(Url url);
     public Task UpdateUrlAsync(Url url);
+    public Task RemoveUrlAsync(Url url);
     public Task<int> GetCurrentIdentifierAsync();
     public Task UpdateIdentityAsync(int newIdentifier);
 }

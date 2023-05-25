@@ -40,7 +40,7 @@ public class AzureTableUrlRepository : IUrlRepository
     public async Task<Url?> GetUrlByShortcutCodeIfExistsAsync(string shortcutCode)
     {
         var partitionKey = shortcutCode.GetFirstThreeLettersOfHost();
-        var urlEntityResponse = await tableClient.GetEntityAsync<UrlTableEntity>(partitionKey, shortcutCode);
+        var urlEntityResponse = await tableClient.GetEntityIfExistsAsync<UrlTableEntity>(partitionKey, shortcutCode);
 
         return urlEntityResponse.HasValue ? mapper.Map<Url>(urlEntityResponse.Value) : null;
     }
@@ -59,6 +59,12 @@ public class AzureTableUrlRepository : IUrlRepository
 
         mapper.Map(source: url, destination: urlEntity);
         await tableClient.UpsertEntityAsync(urlEntity);
+    }
+
+    public async Task RemoveUrlAsync(Url url)
+    {
+        var partitionKey = url.ShortcutCode.GetFirstThreeLettersOfHost();
+        await tableClient.DeleteEntityAsync(partitionKey, url.ShortcutCode);
     }
 
     public async Task<int> GetCurrentIdentifierAsync()

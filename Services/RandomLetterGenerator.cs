@@ -9,13 +9,15 @@ public class RandomLetterGenerator : ILetterGenerator
     private const int MinimumLetter = 'A';
     private const int MaximumLetter = 'Z';
     private readonly Random random;
+    private readonly ITextEntropier textEntropier;
 
-    public RandomLetterGenerator(Random random)
+    public RandomLetterGenerator(Random random, ITextEntropier textEntropier)
     {
         this.random = random;
+        this.textEntropier = textEntropier;
     }
     
-    public string GenerateLetters(ushort length)
+    public string GenerateLetters(ushort length, int seed = 1)
     {
         var resultBuilder = new StringBuilder();
         for (var i = 0; i < length; i++)
@@ -23,7 +25,8 @@ public class RandomLetterGenerator : ILetterGenerator
             var letter = (char) random.Next(minValue: MinimumLetter, maxValue: MaximumLetter);
             resultBuilder.Append(letter);
         }
-
-        return resultBuilder.ToString();
+        
+        return textEntropier.EntropyText(resultBuilder.ToString());
     }
+    
 }
